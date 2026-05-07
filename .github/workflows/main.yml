@@ -7,7 +7,6 @@ jobs:
 build:
 runs-on: windows-latest
 
-```
 steps:
   - name: Setup Python
     uses: actions/setup-python@v5
@@ -44,4 +43,3 @@ steps:
       requests.post(url, json=payload)
 
       print("Done")
-```
