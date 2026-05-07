@@ -1,4 +1,4 @@
-name: Windows RDP
+name: Windows-RDP
 
 on:
 workflow_dispatch:
@@ -7,21 +7,23 @@ jobs:
 build:
 runs-on: windows-latest
 
+```
 steps:
   - name: Checkout
     uses: actions/checkout@v4
 
-  - name: Setup Python
+  - name: Setup-Python
     uses: actions/setup-python@v5
     with:
-      python-version: "3.11"
+      python-version: '3.11'
 
-  - name: Install Libraries
+  - name: Install-Packages
     run: pip install requests pycryptodome
 
-  - name: Run Script
+  - name: Run-Python
     env:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}
       AES_KEY: ${{ secrets.AES_KEY }}
     run: python main.py
+```
