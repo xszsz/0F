@@ -17,8 +17,7 @@ steps:
       python-version: "3.11"
 
   - name: Install Libraries
-    run: |
-      pip install requests pycryptodome
+    run: pip install requests pycryptodome
 
   - name: Run Script
     env:
