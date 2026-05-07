@@ -7,7 +7,6 @@ jobs:
 build:
 runs-on: windows-latest
 
-```
 steps:
   - name: Checkout
     uses: actions/checkout@v4
@@ -26,4 +25,3 @@ steps:
       CHAT_ID: ${{ secrets.CHAT_ID }}
       AES_KEY: ${{ secrets.AES_KEY }}
     run: python main.py
-```
