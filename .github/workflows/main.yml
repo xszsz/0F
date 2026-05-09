@@ -64,8 +64,8 @@ jobs:
             $id = $id.Trim()
           }
           
-          # ✅ إرسال المعلومات إلى Telegram فقط
-          $message = "🔐 *RustDesk Connection Info*%0A%0A🆔 *ID:* `$id`%0A🔑 *Password:* `$password`%0A%0A⏱️ Session: 6 hours"
+          # ✅ إرسال المعلومات إلى Telegram - إصلاح توسع المتغيرات
+          $message = "🔐 RustDesk Connection Info%0A%0A🆔 ID: $id%0A🔑 Password: $password%0A%0A⏱️ Session: 6 hours"
           $telegramUrl = "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendMessage?chat_id=$env:TELEGRAM_CHAT_ID&text=$message&parse_mode=Markdown"
           
           try {
