@@ -45,14 +45,16 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WIN_USERNAME: ${{ secrets.WIN_USERNAME }}
+          WIN_PASSWORD: ${{ secrets.WIN_PASSWORD }}
         run: |
           $rdPath = "C:\Program Files\RustDesk"
           
-          # توليد كلمة مرور عشوائية آمنة
-          $password = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 16 | ForEach-Object { [char]$_ })
+          # توليد كلمة مرور عشوائية آمنة لـ RustDesk
+          $rdPassword = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 16 | ForEach-Object { [char]$_ })
           
-          Write-Host "Setting password..."
-          & "$rdPath\RustDesk.exe" --password $password
+          Write-Host "Setting RustDesk password..."
+          & "$rdPath\RustDesk.exe" --password $rdPassword
           Start-Sleep 3
           
           Write-Host "Getting RustDesk ID..."
@@ -64,8 +66,8 @@ jobs:
             $id = $id.Trim()
           }
           
-          # ✅ إرسال المعلومات إلى Telegram - إصلاح توسع المتغيرات
-          $message = "🔐 RustDesk Connection Info%0A%0A🆔 ID: $id%0A🔑 Password: $password%0A%0A⏱️ Session: 6 hours"
+          # ✅ إرسال جميع المعلومات إلى Telegram
+          $message = "🔐 RustDesk Connection Info%0A%0A🆔 ID: $id%0A🔑 RustDesk Password: $rdPassword%0A%0A👤 Windows User: $env:WIN_USERNAME%0A🔒 Windows Pass: $env:WIN_PASSWORD%0A%0A⏱️ Session: 6 hours"
           $telegramUrl = "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendMessage?chat_id=$env:TELEGRAM_CHAT_ID&text=$message&parse_mode=Markdown"
           
           try {
@@ -80,14 +82,16 @@ jobs:
           Write-Host "RUSTDESK CONNECTION INFO"
           Write-Host "========================================"
           Write-Host "ID: [HIDDEN - sent to Telegram]"
-          Write-Host "Password: [HIDDEN - sent to Telegram]"
+          Write-Host "RustDesk Password: [HIDDEN - sent to Telegram]"
+          Write-Host "Windows User: [HIDDEN - sent to Telegram]"
+          Write-Host "Windows Password: [HIDDEN - sent to Telegram]"
           Write-Host "========================================"
           Write-Host "Check your Telegram for credentials"
           Write-Host "========================================"
           
           # حفظ للخطوات التالية (ملفات محلية فقط)
           "$id" | Out-File "$env:TEMP\rd_id.txt"
-          "$password" | Out-File "$env:TEMP\rd_pass.txt"
+          "$rdPassword" | Out-File "$env:TEMP\rd_pass.txt"
 
       - name: Keep Alive
         shell: pwsh
