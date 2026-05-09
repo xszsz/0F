@@ -1,5 +1,4 @@
 name: LiteManager Server - Connect by ID
-
 on:
   workflow_dispatch:
 
