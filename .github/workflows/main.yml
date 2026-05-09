@@ -1,131 +1,111 @@
-name: LiteManager Server
+name: RustDesk Server
 
 on:
   workflow_dispatch:
 
 jobs:
-  litemanager:
+  rustdesk:
     runs-on: windows-latest
     timeout-minutes: 360
-
+    
     steps:
-      - name: Download LiteManager Server
+      - name: Download RustDesk
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $path = "C:\LiteManager"
-          New-Item -ItemType Directory -Path $path -Force | Out-Null
+          
+          Write-Host "Downloading RustDesk..."
+          $url = "https://github.com/rustdesk/rustdesk/releases/download/1.2.6/rustdesk-1.2.6-x86_64.exe"
+          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\rustdesk.exe" -UseBasicParsing
+          
+          $size = (Get-Item "$env:TEMP\rustdesk.exe").Length
+          Write-Host "Downloaded: $size bytes"
 
-          Write-Host "Downloading ROMServer.exe..."
-
-          $urls = @(
-            "https://downloads.sourceforge.net/project/litemanager/LiteManager%20Free/LiteManager_5.zip",
-            "https://github.com/2Xpro-pop/LiteManager/releases/download/v1.0/ROMServer.exe",
-            "https://github.com/chamod12/LiteManager-Windows-RDP/releases/download/v1.0/LiteManagerPro.zip"
-          )
-
-          $downloaded = $false
-          foreach ($url in $urls) {
-            try {
-              Write-Host "Trying: $url"
-              if ($url -match "\.zip$") {
-                Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\lm.zip" -UseBasicParsing -TimeoutSec 30
-                Expand-Archive -Path "$env:TEMP\lm.zip" -DestinationPath "$env:TEMP\lm" -Force
-                $exe = Get-ChildItem "$env:TEMP\lm" -Recurse -Filter "ROMServer.exe" | Select-Object -First 1
-                if ($exe) {
-                  Copy-Item "$($exe.DirectoryName)\*" $path -Recurse -Force
-                  $downloaded = $true
-                  Write-Host "Downloaded from ZIP"
-                  break
-                }
-              } else {
-                Invoke-WebRequest -Uri $url -OutFile "$path\ROMServer.exe" -UseBasicParsing -TimeoutSec 30
-                if (Test-Path "$path\ROMServer.exe") {
-                  $downloaded = $true
-                  Write-Host "Downloaded directly"
-                  break
-                }
-              }
-            } catch {
-              Write-Host "Failed: $($_.Exception.Message)"
-            }
-          }
-
-          if (-not $downloaded) {
-            throw "Failed to download from all sources"
-          }
-
-          Write-Host "ROMServer.exe ready"
-
-      - name: Configure and Start LiteManager
+      - name: Install RustDesk Silently
         shell: pwsh
         run: |
-          $path = "C:\LiteManager"
-          $id = "GH_$(Get-Random -Minimum 10000 -Maximum 99999)_$(Get-Date -Format 'HHmmss')"
-          $password = "TestPass123!"
-
-          Write-Host "ID: $id"
-
-          & "$path\ROMServer.exe" /silentinstall
-          Start-Sleep 5
-          & "$path\ROMServer.exe" /firewall
-          & "$path\ROMServer.exe" /PASSWORD:$password
-          & "$path\ROMServer.exe" /ID:$id
-          & "$path\ROMServer.exe" /start
-          Start-Sleep 5
-          & "$path\ROMServer.exe" /showconnectbyid
+          Write-Host "Installing RustDesk..."
+          & "$env:TEMP\rustdesk.exe" --silent-install
+          Start-Sleep 20
+          
+          Write-Host "Installing service..."
+          & "C:\Program Files\RustDesk\RustDesk.exe" --install-service
           Start-Sleep 10
-
-          $proc = Get-Process "ROMServer" -ErrorAction SilentlyContinue
-          if (-not $proc) {
-            Start-Process "$path\ROMServer.exe" -WindowStyle Hidden
+          
+          Write-Host "Starting service..."
+          $service = Get-Service -Name "RustDesk" -ErrorAction SilentlyContinue
+          if ($service) {
+            Start-Service $service
             Start-Sleep 5
+            Write-Host "Service status: $($service.Status)"
           }
 
+      - name: Configure and Get ID
+        shell: pwsh
+        run: |
+          $rdPath = "C:\Program Files\RustDesk"
+          $password = "TestPass123!"
+          
+          Write-Host "Setting password..."
+          & "$rdPath\RustDesk.exe" --password $password
+          Start-Sleep 3
+          
+          Write-Host "Getting RustDesk ID..."
+          # استخراج ID باستخدام Out-String
+          $id = & "$rdPath\RustDesk.exe" --get-id | Out-String
+          $id = $id.Trim()
+          
+          if ([string]::IsNullOrEmpty($id)) {
+            # محاولة بديلة باستخدام cmd
+            $id = cmd /c "cd /d `"$rdPath`" && RustDesk.exe --get-id | more"
+            $id = $id.Trim()
+          }
+          
           Write-Host ""
           Write-Host "========================================"
-          Write-Host "LiteManager Server - Connect by ID"
+          Write-Host "RUSTDESK CONNECTION INFO"
           Write-Host "========================================"
           Write-Host "ID: $id"
           Write-Host "Password: $password"
+          Write-Host "========================================"
           Write-Host ""
-          Write-Host "In LiteManager Viewer:"
-          Write-Host "  Connection -> Connect by ID"
-          Write-Host "  ID: $id"
+          Write-Host "In RustDesk on your device:"
+          Write-Host "  Enter ID: $id"
           Write-Host "  Password: $password"
           Write-Host "========================================"
-
-          "ID=$id`nPassword=$password" | Out-File -FilePath "$env:TEMP\lm_info.txt" -Encoding UTF8
+          
+          # حفظ للخطوات التالية
+          "$id" | Out-File "$env:TEMP\rd_id.txt"
+          "$password" | Out-File "$env:TEMP\rd_pass.txt"
 
       - name: Keep Alive
         shell: pwsh
         run: |
           $end = (Get-Date).AddHours(6)
-          $info = Get-Content "$env:TEMP\lm_info.txt" -ErrorAction SilentlyContinue
-          Write-Host "Connection info:"
-          Write-Host $info
-
+          $id = Get-Content "$env:TEMP\rd_id.txt"
+          $pass = Get-Content "$env:TEMP\rd_pass.txt"
+          
+          Write-Host "Connection Info:"
+          Write-Host "ID: $id"
+          Write-Host "Password: $pass"
+          
           while ((Get-Date) -lt $end) {
             $rem = $end - (Get-Date)
             Write-Host "Remaining: $($rem.ToString('hh\:mm\:ss'))"
-
-            $proc = Get-Process "ROMServer" -ErrorAction SilentlyContinue
-            if (-not $proc) {
-              Write-Host "Restarting LiteManager..."
-              & "C:\LiteManager\ROMServer.exe" /start
-              Start-Sleep 5
-              & "C:\LiteManager\ROMServer.exe" /showconnectbyid
+            
+            $service = Get-Service -Name "RustDesk" -ErrorAction SilentlyContinue
+            if ($service -and $service.Status -ne 'Running') {
+              Write-Host "Restarting RustDesk service..."
+              Start-Service $service
             }
-
+            
             Start-Sleep 300
           }
-
-          Write-Host "Session ended"
 
       - name: Cleanup
         if: always()
         shell: pwsh
         run: |
           Write-Host "Cleaning up..."
-          Get-Process "ROMServer" -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Service -Name "RustDesk" -ErrorAction SilentlyContinue | Stop-Service -Force
           Write-Host "Done"
