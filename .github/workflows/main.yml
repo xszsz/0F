@@ -1,4 +1,5 @@
-name: LiteManager Server - Connect by ID
+name: LiteManager Server
+
 on:
   workflow_dispatch:
 
@@ -15,163 +16,116 @@ jobs:
           $path = "C:\LiteManager"
           New-Item -ItemType Directory -Path $path -Force | Out-Null
 
-          Write-Host "⬇️ تحميل ROMServer.exe..."
+          Write-Host "Downloading ROMServer.exe..."
 
-          # محاولة تحميل من موقع رسمي بديل (SourceForge)
           $urls = @(
-              "https://downloads.sourceforge.net/project/litemanager/LiteManager%20Free/LiteManager_5.zip",
-              "https://github.com/2Xpro-pop/LiteManager/releases/download/v1.0/ROMServer.exe",
-              "https://github.com/chamod12/LiteManager-Windows-RDP/releases/download/v1.0/LiteManagerPro.zip"
+            "https://downloads.sourceforge.net/project/litemanager/LiteManager%20Free/LiteManager_5.zip",
+            "https://github.com/2Xpro-pop/LiteManager/releases/download/v1.0/ROMServer.exe",
+            "https://github.com/chamod12/LiteManager-Windows-RDP/releases/download/v1.0/LiteManagerPro.zip"
           )
 
           $downloaded = $false
           foreach ($url in $urls) {
-              try {
-                  Write-Host "محاولة: $url"
-                  if ($url -match "\.zip$") {
-                      Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\lm.zip" -UseBasicParsing -TimeoutSec 30
-                      Expand-Archive -Path "$env:TEMP\lm.zip" -DestinationPath "$env:TEMP\lm" -Force
-                      $exe = Get-ChildItem "$env:TEMP\lm" -Recurse -Filter "ROMServer.exe" | Select-Object -First 1
-                      if ($exe) {
-                          Copy-Item "$($exe.DirectoryName)\*" $path -Recurse -Force
-                          $downloaded = $true
-                          Write-Host "✅ تم التحميل من ZIP"
-                          break
-                      }
-                  } else {
-                      Invoke-WebRequest -Uri $url -OutFile "$path\ROMServer.exe" -UseBasicParsing -TimeoutSec 30
-                      if (Test-Path "$path\ROMServer.exe") {
-                          $downloaded = $true
-                          Write-Host "✅ تم التحميل المباشر"
-                          break
-                      }
-                  }
-              } catch {
-                  Write-Host "⚠️ فشل: $($_.Exception.Message)"
+            try {
+              Write-Host "Trying: $url"
+              if ($url -match "\.zip$") {
+                Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\lm.zip" -UseBasicParsing -TimeoutSec 30
+                Expand-Archive -Path "$env:TEMP\lm.zip" -DestinationPath "$env:TEMP\lm" -Force
+                $exe = Get-ChildItem "$env:TEMP\lm" -Recurse -Filter "ROMServer.exe" | Select-Object -First 1
+                if ($exe) {
+                  Copy-Item "$($exe.DirectoryName)\*" $path -Recurse -Force
+                  $downloaded = $true
+                  Write-Host "Downloaded from ZIP"
+                  break
+                }
+              } else {
+                Invoke-WebRequest -Uri $url -OutFile "$path\ROMServer.exe" -UseBasicParsing -TimeoutSec 30
+                if (Test-Path "$path\ROMServer.exe") {
+                  $downloaded = $true
+                  Write-Host "Downloaded directly"
+                  break
+                }
               }
+            } catch {
+              Write-Host "Failed: $($_.Exception.Message)"
+            }
           }
 
           if (-not $downloaded) {
-              throw "❌ فشل التحميل من جميع المصادر"
+            throw "Failed to download from all sources"
           }
 
-          Write-Host "✅ ROMServer.exe جاهز"
+          Write-Host "ROMServer.exe ready"
 
-      - name: Configure and Start LiteManager Server with ID
+      - name: Configure and Start LiteManager
         shell: pwsh
         run: |
           $path = "C:\LiteManager"
-
-          # تعيين ID فريد للاتصال
           $id = "GH_$(Get-Random -Minimum 10000 -Maximum 99999)_$(Get-Date -Format 'HHmmss')"
-          Write-Host "🆔 ID المعين: $id"
+          $password = "TestPass123!"
 
-          # تثبيت الخدمة
-          Write-Host "🔧 تثبيت الخدمة..."
+          Write-Host "ID: $id"
+
           & "$path\ROMServer.exe" /silentinstall
           Start-Sleep 5
-
-          # فتح جدار الحماية
-          Write-Host "🔓 فتح جدار الحماية..."
           & "$path\ROMServer.exe" /firewall
-          Start-Sleep 2
-
-          # تعيين كلمة المرور
-          $password = "TestPass123!"
-          Write-Host "🔑 تعيين كلمة المرور..."
           & "$path\ROMServer.exe" /PASSWORD:$password
-
-          # تعيين ID
-          Write-Host "🆔 تعيين ID..."
           & "$path\ROMServer.exe" /ID:$id
-
-          # تشغيل الخادم
-          Write-Host "🚀 تشغيل الخادم..."
           & "$path\ROMServer.exe" /start
           Start-Sleep 5
-
-          # تشغيل الاتصال بـ NoIP (لفتح نافذة Connect by ID)
-          Write-Host "🌐 الاتصال بـ NoIP..."
           & "$path\ROMServer.exe" /showconnectbyid
           Start-Sleep 10
 
-          # التحقق من العملية
           $proc = Get-Process "ROMServer" -ErrorAction SilentlyContinue
-          if ($proc) {
-              Write-Host "✅ LiteManager Server يعمل (PID: $($proc.Id))"
-          } else {
-              Start-Process "$path\ROMServer.exe" -WindowStyle Hidden
-              Start-Sleep 5
+          if (-not $proc) {
+            Start-Process "$path\ROMServer.exe" -WindowStyle Hidden
+            Start-Sleep 5
           }
 
-          # قراءة الإعدادات من الريجستري للتحقق
-          Write-Host "📋 التحقق من الإعدادات..."
-          try {
-              $regPath = "HKLM:\SYSTEM\LiteManager\v3.4\Server\Parameters"
-              if (Test-Path $regPath) {
-                  $settings = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
-                  if ($settings.ID) {
-                      Write-Host "🆔 ID في الريجستري: $($settings.ID)"
-                  }
-              }
-          } catch {
-              Write-Host "⚠️ لا يمكن قراءة الريجستري"
-          }
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "LiteManager Server - Connect by ID"
+          Write-Host "========================================"
+          Write-Host "ID: $id"
+          Write-Host "Password: $password"
+          Write-Host ""
+          Write-Host "In LiteManager Viewer:"
+          Write-Host "  Connection -> Connect by ID"
+          Write-Host "  ID: $id"
+          Write-Host "  Password: $password"
+          Write-Host "========================================"
 
-          # حفظ المعلومات
-          @"
-ID: $id
-Password: $password
-"@ | Out-File -FilePath "$env:TEMP\lm_info.txt" -Encoding UTF8
+          "ID=$id`nPassword=$password" | Out-File -FilePath "$env:TEMP\lm_info.txt" -Encoding UTF8
 
-          Write-Host ""
-          Write-Host "═══════════════════════════════════════════════════" -ForegroundColor Green
-          Write-Host "🖥️  LiteManager Server - Connect by ID" -ForegroundColor Cyan
-          Write-Host "═══════════════════════════════════════════════════" -ForegroundColor Green
-          Write-Host ""
-          Write-Host "🆔 ID: $id" -ForegroundColor Yellow
-          Write-Host "🔑 Password: $password" -ForegroundColor Yellow
-          Write-Host ""
-          Write-Host "📋 في LiteManager Viewer على جهازك:" -ForegroundColor White
-          Write-Host "   1. اضغط: Connection → Connect by ID" -ForegroundColor Gray
-          Write-Host "   2. أدخل ID: $id" -ForegroundColor Gray
-          Write-Host "   3. Password: $password" -ForegroundColor Gray
-          Write-Host "   4. اضغط Connect" -ForegroundColor Gray
-          Write-Host ""
-          Write-Host "⚠️ ملاحظة: يجب أن يتصل ROMServer بـ NoIP بنجاح" -ForegroundColor Red
-          Write-Host "⏱️  Session: 6 hours max" -ForegroundColor Red
-          Write-Host "═══════════════════════════════════════════════════" -ForegroundColor Green
-
-      - name: Monitor and Keep Alive
+      - name: Keep Alive
         shell: pwsh
         run: |
           $end = (Get-Date).AddHours(6)
           $info = Get-Content "$env:TEMP\lm_info.txt" -ErrorAction SilentlyContinue
-          Write-Host "📋 معلومات الاتصال:"
+          Write-Host "Connection info:"
           Write-Host $info
 
           while ((Get-Date) -lt $end) {
-              $rem = $end - (Get-Date)
-              Write-Host "⏳ متبقي: $($rem.ToString('hh\:mm\:ss'))"
+            $rem = $end - (Get-Date)
+            Write-Host "Remaining: $($rem.ToString('hh\:mm\:ss'))"
 
-              $proc = Get-Process "ROMServer" -ErrorAction SilentlyContinue
-              if (-not $proc) {
-                  Write-Host "⚠️ إعادة تشغيل LiteManager..."
-                  & "C:\LiteManager\ROMServer.exe" /start
-                  Start-Sleep 5
-                  # إعادة الاتصال بـ NoIP
-                  & "C:\LiteManager\ROMServer.exe" /showconnectbyid
-              }
+            $proc = Get-Process "ROMServer" -ErrorAction SilentlyContinue
+            if (-not $proc) {
+              Write-Host "Restarting LiteManager..."
+              & "C:\LiteManager\ROMServer.exe" /start
+              Start-Sleep 5
+              & "C:\LiteManager\ROMServer.exe" /showconnectbyid
+            }
 
-              Start-Sleep 300
+            Start-Sleep 300
           }
 
-          Write-Host "✅ انتهت الجلسة"
+          Write-Host "Session ended"
 
       - name: Cleanup
         if: always()
         shell: pwsh
         run: |
-          Write-Host "🧹 تنظيف..."
+          Write-Host "Cleaning up..."
           Get-Process "ROMServer" -ErrorAction SilentlyContinue | Stop-Process -Force
-          Write-Host "✅ تم التنظيف"
+          Write-Host "Done"
