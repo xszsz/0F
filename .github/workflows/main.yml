@@ -40,28 +40,19 @@ jobs:
             Write-Host "Service status: $($service.Status)"
           }
 
-      - name: Configure Windows User + RustDesk
+      - name: Configure and Get ID
         shell: pwsh
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          WIN_PASSWORD: ${{ secrets.WIN_PASSWORD }}
         run: |
           $rdPath = "C:\Program Files\RustDesk"
           
-          # ✅ تغيير كلمة سر المستخدم الحالي (runneradmin)
-          Write-Host "Changing Windows password..."
-          $securePass = ConvertTo-SecureString $env:WIN_PASSWORD -AsPlainText -Force
-          $user = [ADSI]"WinNT://./runneradmin,user"
-          $user.SetPassword($env:WIN_PASSWORD)
-          $user.SetInfo()
-          Write-Host "Windows password updated successfully"
+          # توليد كلمة مرور عشوائية آمنة
+          $password = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 16 | ForEach-Object { [char]$_ })
           
-          # توليد كلمة مرور عشوائية لـ RustDesk
-          $rdPassword = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 16 | ForEach-Object { [char]$_ })
-          
-          Write-Host "Setting RustDesk password..."
-          & "$rdPath\RustDesk.exe" --password $rdPassword
+          Write-Host "Setting password..."
+          & "$rdPath\RustDesk.exe" --password $password
           Start-Sleep 3
           
           Write-Host "Getting RustDesk ID..."
@@ -73,8 +64,8 @@ jobs:
             $id = $id.Trim()
           }
           
-          # ✅ إرسال المعلومات إلى Telegram
-          $message = "🔐 RustDesk Connection Info%0A%0A🆔 ID: $id%0A🔑 RustDesk Password: $rdPassword%0A%0A👤 Windows User: runneradmin%0A🔒 Windows Password: $env:WIN_PASSWORD%0A%0A⏱️ Session: 6 hours"
+          # ✅ إرسال المعلومات إلى Telegram - إصلاح توسع المتغيرات
+          $message = "🔐 RustDesk Connection Info%0A%0A🆔 ID: $id%0A🔑 Password: $password%0A%0A⏱️ Session: 6 hours"
           $telegramUrl = "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendMessage?chat_id=$env:TELEGRAM_CHAT_ID&text=$message&parse_mode=Markdown"
           
           try {
@@ -84,21 +75,19 @@ jobs:
             Write-Host "⚠️ Failed to send Telegram message: $_"
           }
           
-          # ❌ عدم طباعة أي معلومات حساسة
+          # ❌ عدم طباعة أي معلومات حساسة في السجلات
           Write-Host "========================================"
           Write-Host "RUSTDESK CONNECTION INFO"
           Write-Host "========================================"
           Write-Host "ID: [HIDDEN - sent to Telegram]"
-          Write-Host "RustDesk Password: [HIDDEN - sent to Telegram]"
-          Write-Host "Windows User: runneradmin (fixed)"
-          Write-Host "Windows Password: [HIDDEN - sent to Telegram]"
+          Write-Host "Password: [HIDDEN - sent to Telegram]"
           Write-Host "========================================"
           Write-Host "Check your Telegram for credentials"
           Write-Host "========================================"
           
-          # حفظ للخطوات التالية
+          # حفظ للخطوات التالية (ملفات محلية فقط)
           "$id" | Out-File "$env:TEMP\rd_id.txt"
-          "$rdPassword" | Out-File "$env:TEMP\rd_pass.txt"
+          "$password" | Out-File "$env:TEMP\rd_pass.txt"
 
       - name: Keep Alive
         shell: pwsh
@@ -128,6 +117,7 @@ jobs:
           Write-Host "Cleaning up..."
           Get-Service -Name "RustDesk" -ErrorAction SilentlyContinue | Stop-Service -Force
           
+          # حذف الملفات المؤقتة
           Remove-Item "$env:TEMP\rd_id.txt" -ErrorAction SilentlyContinue
           Remove-Item "$env:TEMP\rd_pass.txt" -ErrorAction SilentlyContinue
           Write-Host "Sensitive files removed"
