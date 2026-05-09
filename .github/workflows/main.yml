@@ -1,45 +1,92 @@
-name: Windows-RDP
+name: LiteManager Server (LocalTunnel)
 
 on:
-workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
-build:
-runs-on: windows-latest
+  litemanager:
+    runs-on: windows-latest
+    timeout-minutes: 360
+    
+    steps:
+      - name: Setup LiteManager Server
+        shell: pwsh
+        run: |
+          $path = "C:\LiteManager"
+          New-Item -ItemType Directory -Path $path -Force | Out-Null
+          
+          Write-Host "⬇️ تحميل LiteManager Pro..."
+          Invoke-WebRequest -Uri "https://litemanager.com/zip/LiteManagerPro.zip" -OutFile "$env:TEMP\lm.zip" -UseBasicParsing
+          Expand-Archive -Path "$env:TEMP\lm.zip" -DestinationPath "$env:TEMP\lm" -Force
+          
+          $src = (Get-ChildItem "$env:TEMP\lm" -Recurse -Filter "ROMServer.exe" | Select-Object -First 1).DirectoryName
+          Copy-Item "$src\*" $path -Recurse -Force
+          
+          # تثبيت وتشغيل
+          & "$path\ROMServer.exe" /silentinstall
+          Start-Sleep 3
+          & "$path\ROMServer.exe" /firewall
+          & "$path\ROMServer.exe" /PASSWORD:TestPass123!
+          & "$path\ROMServer.exe" /start
+          
+          Write-Host "✅ LiteManager Server يعمل"
 
-steps:
-  - name: Setup Python
-    uses: actions/setup-python@v5
-    with:
-      python-version: '3.11'
+      - name: Setup LocalTunnel
+        shell: pwsh
+        run: |
+          # تثبيت Node.js
+          Write-Host "⬇️ تثبيت Node.js..."
+          Invoke-WebRequest -Uri "https://nodejs.org/dist/v20.11.0/node-v20.11.0-x64.msi" -OutFile "$env:TEMP\node.msi" -UseBasicParsing
+          Start-Process msiexec.exe -ArgumentList "/i $env:TEMP\node.msi /quiet /norestart" -Wait
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+          
+          # تثبيت LocalTunnel
+          Write-Host "📦 تثبيت LocalTunnel..."
+          & npm install -g localtunnel
+          
+          # تشغيل النفق على المنفذ 5650
+          Write-Host "🚀 تشغيل LocalTunnel..."
+          Start-Process -FilePath "lt" -ArgumentList "--port 5650" -WindowStyle Hidden -RedirectStandardOutput "$env:TEMP\lt.log" -RedirectStandardError "$env:TEMP\lt.err"
+          
+          Start-Sleep 15
+          
+          # قراءة الرابط
+          $log = Get-Content "$env:TEMP\lt.log" -ErrorAction SilentlyContinue | Select-String -Pattern "https://.*\.loca\.lt" | Select-Object -First 1
+          
+          if ($log) {
+              $url = $log.Matches[0].Value
+              Write-Host ""
+              Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
+              Write-Host "🖥️  LiteManager Server جاهز!" -ForegroundColor Green
+              Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
+              Write-Host ""
+              Write-Host "🌐 الرابط: $url" -ForegroundColor Yellow
+              Write-Host "🔌 المنفذ: 5650 (يُحوّل تلقائياً)" -ForegroundColor White
+              Write-Host "🔑 Password: TestPass123!" -ForegroundColor White
+              Write-Host ""
+              Write-Host "📋 في LiteManager Viewer:" -ForegroundColor White
+              Write-Host "   Connection Mode: Direct Connection" -ForegroundColor White
+              Write-Host "   IP/Host: $url" -ForegroundColor White
+              Write-Host "   Port: 443 (HTTPS)" -ForegroundColor White
+              Write-Host "   Password: TestPass123!" -ForegroundColor White
+              Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
+          } else {
+              Write-Host "⚠️ جاري المحاولة مرة أخرى..."
+              Start-Sleep 10
+              $log = Get-Content "$env:TEMP\lt.log" -ErrorAction SilentlyContinue
+              Write-Host "السجلات: $log"
+          }
 
-  - name: Install Libraries
-    run: |
-      pip install requests pycryptodome
-
-  - name: Run Python Code
-    env:
-      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-      CHAT_ID: ${{ secrets.CHAT_ID }}
-      AES_KEY: ${{ secrets.AES_KEY }}
-    shell: python
-    run: |
-
-      import os
-      import requests
-
-      BOT_TOKEN = os.getenv("BOT_TOKEN")
-      CHAT_ID = os.getenv("CHAT_ID")
-
-      message = "GitHub Actions Python Works"
-
-      url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-
-      payload = {
-          "chat_id": CHAT_ID,
-          "text": message
-      }
-
-      requests.post(url, json=payload)
-
-      print("Done")
+      - name: Keep Alive
+        shell: pwsh
+        run: |
+          $end = (Get-Date).AddHours(6)
+          while ((Get-Date) -lt $end) {
+              $rem = $end - (Get-Date)
+              Write-Host "⏳ متبقي: $($rem.ToString('hh\:mm\:ss'))"
+              
+              if (-not (Get-Process "ROMServer" -ErrorAction SilentlyContinue)) {
+                  & "C:\LiteManager\ROMServer.exe" /start
+              }
+              Start-Sleep 300
+          }
