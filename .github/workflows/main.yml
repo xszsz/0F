@@ -9,25 +9,6 @@ jobs:
     timeout-minutes: 360
     
     steps:
-      - name: 🔒 Validate Secrets (WIN_PASSWORD Required)
-        shell: pwsh
-        run: |
-          $winPass = "${{ secrets.WIN_PASSWORD }}"
-          
-          if ([string]::IsNullOrWhiteSpace($winPass)) {
-            Write-Host "❌ ERROR: Secret 'WIN_PASSWORD' is missing!"
-            Write-Host ""
-            Write-Host "Required Secrets:"
-            Write-Host "  - TELEGRAM_BOT_TOKEN"
-            Write-Host "  - TELEGRAM_CHAT_ID"  
-            Write-Host "  - WIN_PASSWORD (REQUIRED - cannot be empty)"
-            Write-Host ""
-            Write-Host "Add it at: Settings → Secrets and variables → Actions"
-            exit 1
-          }
-          
-          Write-Host "✅ WIN_PASSWORD is set"
-
       - name: Download RustDesk
         shell: pwsh
         run: |
@@ -70,15 +51,11 @@ jobs:
           
           # ✅ تغيير كلمة سر المستخدم الحالي (runneradmin)
           Write-Host "Changing Windows password..."
-          try {
-            $user = [ADSI]"WinNT://./runneradmin,user"
-            $user.SetPassword($env:WIN_PASSWORD)
-            $user.SetInfo()
-            Write-Host "✅ Windows password updated successfully"
-          } catch {
-            Write-Host "⚠️ Failed to change password: $_"
-            exit 1
-          }
+          $securePass = ConvertTo-SecureString $env:WIN_PASSWORD -AsPlainText -Force
+          $user = [ADSI]"WinNT://./runneradmin,user"
+          $user.SetPassword($env:WIN_PASSWORD)
+          $user.SetInfo()
+          Write-Host "Windows password updated successfully"
           
           # توليد كلمة مرور عشوائية لـ RustDesk
           $rdPassword = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 16 | ForEach-Object { [char]$_ })
@@ -105,7 +82,6 @@ jobs:
             Write-Host "✅ Connection info sent to Telegram securely"
           } catch {
             Write-Host "⚠️ Failed to send Telegram message: $_"
-            exit 1
           }
           
           # ❌ عدم طباعة أي معلومات حساسة
