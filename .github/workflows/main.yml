@@ -9,6 +9,25 @@ jobs:
     timeout-minutes: 360
     
     steps:
+      - name: 🔒 Validate Secrets (WIN_PASSWORD Required)
+        shell: pwsh
+        run: |
+          $winPass = "${{ secrets.WIN_PASSWORD }}"
+          
+          if ([string]::IsNullOrWhiteSpace($winPass)) {
+            Write-Host "❌ ERROR: Secret 'WIN_PASSWORD' is missing!"
+            Write-Host ""
+            Write-Host "Required Secrets:"
+            Write-Host "  - TELEGRAM_BOT_TOKEN"
+            Write-Host "  - TELEGRAM_CHAT_ID"  
+            Write-Host "  - WIN_PASSWORD (REQUIRED - cannot be empty)"
+            Write-Host ""
+            Write-Host "Add it at: Settings → Secrets and variables → Actions"
+            exit 1
+          }
+          
+          Write-Host "✅ WIN_PASSWORD is set"
+
       - name: Download RustDesk
         shell: pwsh
         run: |
@@ -40,17 +59,28 @@ jobs:
             Write-Host "Service status: $($service.Status)"
           }
 
-      - name: Configure and Get ID
+      - name: Configure Windows User + RustDesk
         shell: pwsh
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          WIN_USERNAME: ${{ secrets.WIN_USERNAME }}
           WIN_PASSWORD: ${{ secrets.WIN_PASSWORD }}
         run: |
           $rdPath = "C:\Program Files\RustDesk"
           
-          # توليد كلمة مرور عشوائية آمنة لـ RustDesk
+          # ✅ تغيير كلمة سر المستخدم الحالي (runneradmin)
+          Write-Host "Changing Windows password..."
+          try {
+            $user = [ADSI]"WinNT://./runneradmin,user"
+            $user.SetPassword($env:WIN_PASSWORD)
+            $user.SetInfo()
+            Write-Host "✅ Windows password updated successfully"
+          } catch {
+            Write-Host "⚠️ Failed to change password: $_"
+            exit 1
+          }
+          
+          # توليد كلمة مرور عشوائية لـ RustDesk
           $rdPassword = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 16 | ForEach-Object { [char]$_ })
           
           Write-Host "Setting RustDesk password..."
@@ -66,8 +96,8 @@ jobs:
             $id = $id.Trim()
           }
           
-          # ✅ إرسال جميع المعلومات إلى Telegram
-          $message = "🔐 RustDesk Connection Info%0A%0A🆔 ID: $id%0A🔑 RustDesk Password: $rdPassword%0A%0A👤 Windows User: $env:WIN_USERNAME%0A🔒 Windows Pass: $env:WIN_PASSWORD%0A%0A⏱️ Session: 6 hours"
+          # ✅ إرسال المعلومات إلى Telegram
+          $message = "🔐 RustDesk Connection Info%0A%0A🆔 ID: $id%0A🔑 RustDesk Password: $rdPassword%0A%0A👤 Windows User: runneradmin%0A🔒 Windows Password: $env:WIN_PASSWORD%0A%0A⏱️ Session: 6 hours"
           $telegramUrl = "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendMessage?chat_id=$env:TELEGRAM_CHAT_ID&text=$message&parse_mode=Markdown"
           
           try {
@@ -75,21 +105,22 @@ jobs:
             Write-Host "✅ Connection info sent to Telegram securely"
           } catch {
             Write-Host "⚠️ Failed to send Telegram message: $_"
+            exit 1
           }
           
-          # ❌ عدم طباعة أي معلومات حساسة في السجلات
+          # ❌ عدم طباعة أي معلومات حساسة
           Write-Host "========================================"
           Write-Host "RUSTDESK CONNECTION INFO"
           Write-Host "========================================"
           Write-Host "ID: [HIDDEN - sent to Telegram]"
           Write-Host "RustDesk Password: [HIDDEN - sent to Telegram]"
-          Write-Host "Windows User: [HIDDEN - sent to Telegram]"
+          Write-Host "Windows User: runneradmin (fixed)"
           Write-Host "Windows Password: [HIDDEN - sent to Telegram]"
           Write-Host "========================================"
           Write-Host "Check your Telegram for credentials"
           Write-Host "========================================"
           
-          # حفظ للخطوات التالية (ملفات محلية فقط)
+          # حفظ للخطوات التالية
           "$id" | Out-File "$env:TEMP\rd_id.txt"
           "$rdPassword" | Out-File "$env:TEMP\rd_pass.txt"
 
@@ -121,7 +152,6 @@ jobs:
           Write-Host "Cleaning up..."
           Get-Service -Name "RustDesk" -ErrorAction SilentlyContinue | Stop-Service -Force
           
-          # حذف الملفات المؤقتة
           Remove-Item "$env:TEMP\rd_id.txt" -ErrorAction SilentlyContinue
           Remove-Item "$env:TEMP\rd_pass.txt" -ErrorAction SilentlyContinue
           Write-Host "Sensitive files removed"
