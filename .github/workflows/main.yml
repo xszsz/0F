@@ -1,111 +1,82 @@
-name: RustDesk Server
+name: RustDesk Server (Secure)
 
 on:
   workflow_dispatch:
+    inputs:
+      secret_key:
+        description: 'Enter secret key'
+        required: true
+        type: string
 
 jobs:
   rustdesk:
+    # فقط أنت + كلمة السر الصحيحة
+    if: github.actor == 'YOUR_USERNAME' && github.event.inputs.secret_key == 'YOUR_SECRET_KEY'
     runs-on: windows-latest
-    timeout-minutes: 360
+    timeout-minutes: 30
     
     steps:
       - name: Download RustDesk
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          
-          Write-Host "Downloading RustDesk..."
           $url = "https://github.com/rustdesk/rustdesk/releases/download/1.2.6/rustdesk-1.2.6-x86_64.exe"
-          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\rustdesk.exe" -UseBasicParsing
-          
-          $size = (Get-Item "$env:TEMP\rustdesk.exe").Length
-          Write-Host "Downloaded: $size bytes"
+          Invoke-WebRequest $url -OutFile "$env:TEMP\rustdesk.exe" -UseBasicParsing
 
-      - name: Install RustDesk Silently
+      - name: Install and Start RustDesk
         shell: pwsh
         run: |
-          Write-Host "Installing RustDesk..."
           & "$env:TEMP\rustdesk.exe" --silent-install
           Start-Sleep 20
-          
-          Write-Host "Installing service..."
           & "C:\Program Files\RustDesk\RustDesk.exe" --install-service
-          Start-Sleep 10
-          
-          Write-Host "Starting service..."
-          $service = Get-Service -Name "RustDesk" -ErrorAction SilentlyContinue
-          if ($service) {
-            Start-Service $service
-            Start-Sleep 5
-            Write-Host "Service status: $($service.Status)"
-          }
+          Start-Service RustDesk
 
-      - name: Configure and Get ID
+      - name: Configure RustDesk
         shell: pwsh
         run: |
           $rdPath = "C:\Program Files\RustDesk"
-          $password = "TestPass123!"
+          $password = "${{ secrets.RUSTDESK_PASSWORD }}"
           
-          Write-Host "Setting password..."
+          # تعيين كلمة المرور
           & "$rdPath\RustDesk.exe" --password $password
           Start-Sleep 3
           
-          Write-Host "Getting RustDesk ID..."
-          # استخراج ID باستخدام Out-String
-          $id = & "$rdPath\RustDesk.exe" --get-id | Out-String
-          $id = $id.Trim()
+          # استخراج ID (مخفي تماماً)
+          $id = (& "$rdPath\RustDesk.exe" --get-id | Out-String).Trim()
           
-          if ([string]::IsNullOrEmpty($id)) {
-            # محاولة بديلة باستخدام cmd
-            $id = cmd /c "cd /d `"$rdPath`" && RustDesk.exe --get-id | more"
-            $id = $id.Trim()
-          }
+          # إخفاء من Logs بشكل نهائي
+          Write-Host "::add-mask::$id"
+          Write-Host "::add-mask::$password"
           
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "RUSTDESK CONNECTION INFO"
-          Write-Host "========================================"
-          Write-Host "ID: $id"
-          Write-Host "Password: $password"
-          Write-Host "========================================"
-          Write-Host ""
-          Write-Host "In RustDesk on your device:"
-          Write-Host "  Enter ID: $id"
-          Write-Host "  Password: $password"
-          Write-Host "========================================"
-          
-          # حفظ للخطوات التالية
+          # حفظ في ملف (للخطوة التالية فقط)
           "$id" | Out-File "$env:TEMP\rd_id.txt"
-          "$password" | Out-File "$env:TEMP\rd_pass.txt"
 
-      - name: Keep Alive
+      - name: Send to Telegram (Secure)
         shell: pwsh
         run: |
-          $end = (Get-Date).AddHours(6)
           $id = Get-Content "$env:TEMP\rd_id.txt"
-          $pass = Get-Content "$env:TEMP\rd_pass.txt"
+          $password = "${{ secrets.RUSTDESK_PASSWORD }}"
           
-          Write-Host "Connection Info:"
-          Write-Host "ID: $id"
-          Write-Host "Password: $pass"
+          $botToken = "${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          $chatId = "${{ secrets.TELEGRAM_CHAT_ID }}"
           
+          # إرسال ID + Password عبر Telegram
+          $message = "RustDesk Connection%0AID: $id%0APassword: $password%0ATime: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+          
+          try {
+            $response = Invoke-WebRequest -Uri "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=$message&parse_mode=HTML" -UseBasicParsing
+            Write-Host "Sent to Telegram successfully"
+          } catch {
+            Write-Host "Failed to send Telegram message"
+          }
+
+      - name: Keep Alive (30 min)
+        shell: pwsh
+        run: |
+          $end = (Get-Date).AddMinutes(30)
           while ((Get-Date) -lt $end) {
-            $rem = $end - (Get-Date)
-            Write-Host "Remaining: $($rem.ToString('hh\:mm\:ss'))"
-            
-            $service = Get-Service -Name "RustDesk" -ErrorAction SilentlyContinue
+            $service = Get-Service RustDesk -ErrorAction SilentlyContinue
             if ($service -and $service.Status -ne 'Running') {
-              Write-Host "Restarting RustDesk service..."
-              Start-Service $service
+              Start-Service RustDesk
             }
-            
             Start-Sleep 300
           }
-
-      - name: Cleanup
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host "Cleaning up..."
-          Get-Service -Name "RustDesk" -ErrorAction SilentlyContinue | Stop-Service -Force
-          Write-Host "Done"
