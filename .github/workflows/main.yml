@@ -1,4 +1,4 @@
-name: LiteManager Server (LocalTunnel)
+name: LiteManager Server (Fixed)
 
 on:
   workflow_dispatch:
@@ -7,86 +7,175 @@ jobs:
   litemanager:
     runs-on: windows-latest
     timeout-minutes: 360
-    
+
     steps:
-      - name: Setup LiteManager Server
+      - name: Download LiteManager Server
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $path = "C:\LiteManager"
+          New-Item -ItemType Directory -Path $path -Force | Out-Null
+
+          Write-Host "⬇️ تحميل LiteManager Pro..."
+          try {
+              Invoke-WebRequest -Uri "https://litemanager.com/zip/LiteManagerPro.zip" -OutFile "$env:TEMP\lm.zip" -UseBasicParsing -TimeoutSec 60
+              Expand-Archive -Path "$env:TEMP\lm.zip" -DestinationPath "$env:TEMP\lm" -Force
+
+              $serverFile = Get-ChildItem "$env:TEMP\lm" -Recurse -Filter "ROMServer.exe" | Select-Object -First 1
+              if ($serverFile) {
+                  $src = $serverFile.DirectoryName
+                  Copy-Item "$src\*" $path -Recurse -Force
+                  Write-Host "✅ تم نسخ الملفات من $src"
+              } else {
+                  throw "لم يتم العثور على ROMServer.exe"
+              }
+          } catch {
+              Write-Host "⚠️ فشل التحميل من المصدر الرئيسي، جاري المحاولة من المصدر البديل..."
+              Invoke-WebRequest -Uri "https://github.com/chamod12/LiteManager-Windows-RDP/releases/download/v1.0/LiteManagerPro.zip" -OutFile "$env:TEMP\lm.zip" -UseBasicParsing
+              Expand-Archive -Path "$env:TEMP\lm.zip" -DestinationPath $path -Force
+          }
+
+          # التحقق
+          if (Test-Path "$path\ROMServer.exe") {
+              Write-Host "✅ ROMServer.exe موجود"
+          } else {
+              throw "❌ فشل تحميل LiteManager"
+          }
+
+      - name: Install and Configure LiteManager
         shell: pwsh
         run: |
           $path = "C:\LiteManager"
-          New-Item -ItemType Directory -Path $path -Force | Out-Null
-          
-          Write-Host "⬇️ تحميل LiteManager Pro..."
-          Invoke-WebRequest -Uri "https://litemanager.com/zip/LiteManagerPro.zip" -OutFile "$env:TEMP\lm.zip" -UseBasicParsing
-          Expand-Archive -Path "$env:TEMP\lm.zip" -DestinationPath "$env:TEMP\lm" -Force
-          
-          $src = (Get-ChildItem "$env:TEMP\lm" -Recurse -Filter "ROMServer.exe" | Select-Object -First 1).DirectoryName
-          Copy-Item "$src\*" $path -Recurse -Force
-          
-          # تثبيت وتشغيل
-          & "$path\ROMServer.exe" /silentinstall
-          Start-Sleep 3
-          & "$path\ROMServer.exe" /firewall
-          & "$path\ROMServer.exe" /PASSWORD:TestPass123!
-          & "$path\ROMServer.exe" /start
-          
-          Write-Host "✅ LiteManager Server يعمل"
 
-      - name: Setup LocalTunnel
+          Write-Host "🔧 تثبيت الخدمة..."
+          & "$path\ROMServer.exe" /silentinstall
+          Start-Sleep 5
+
+          Write-Host "🔓 فتح جدار الحماية..."
+          & "$path\ROMServer.exe" /firewall
+          Start-Sleep 2
+
+          Write-Host "🔑 تعيين كلمة المرور..."
+          & "$path\ROMServer.exe" /PASSWORD:TestPass123!
+
+          Write-Host "🚀 تشغيل الخادم..."
+          & "$path\ROMServer.exe" /start
+          Start-Sleep 5
+
+          # التحقق من العملية
+          $proc = Get-Process "ROMServer" -ErrorAction SilentlyContinue
+          if ($proc) {
+              Write-Host "✅ LiteManager Server يعمل (PID: $($proc.Id))"
+          } else {
+              Write-Host "⚠️ محاولة التشغيل كتطبيق..."
+              Start-Process "$path\ROMServer.exe" -WindowStyle Hidden
+              Start-Sleep 3
+              $proc = Get-Process "ROMServer" -ErrorAction SilentlyContinue
+              if (-not $proc) {
+                  throw "❌ فشل تشغيل LiteManager"
+              }
+          }
+
+          # عرض المنافذ
+          Write-Host "📡 المنافذ المفتوحة:"
+          netstat -an | findstr "5650" | findstr "LISTENING"
+
+      - name: Setup Tunnel (LocalTunnel)
         shell: pwsh
         run: |
-          # تثبيت Node.js
-          Write-Host "⬇️ تثبيت Node.js..."
-          Invoke-WebRequest -Uri "https://nodejs.org/dist/v20.11.0/node-v20.11.0-x64.msi" -OutFile "$env:TEMP\node.msi" -UseBasicParsing
-          Start-Process msiexec.exe -ArgumentList "/i $env:TEMP\node.msi /quiet /norestart" -Wait
-          $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-          
-          # تثبيت LocalTunnel
+          $ErrorActionPreference = "Stop"
+
+          # التحقق من Node.js
+          $node = Get-Command node -ErrorAction SilentlyContinue
+          if (-not $node) {
+              Write-Host "⬇️ تثبيت Node.js..."
+              Invoke-WebRequest -Uri "https://nodejs.org/dist/v20.11.0/node-v20.11.0-x64.msi" -OutFile "$env:TEMP\node.msi" -UseBasicParsing
+              Start-Process msiexec.exe -ArgumentList "/i","$env:TEMP\node.msi","/quiet","/norestart" -Wait
+              $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+          } else {
+              Write-Host "✅ Node.js موجود: $(node -v)"
+          }
+
+          # تثبيت localtunnel
           Write-Host "📦 تثبيت LocalTunnel..."
           & npm install -g localtunnel
-          
-          # تشغيل النفق على المنفذ 5650
-          Write-Host "🚀 تشغيل LocalTunnel..."
-          Start-Process -FilePath "lt" -ArgumentList "--port 5650" -WindowStyle Hidden -RedirectStandardOutput "$env:TEMP\lt.log" -RedirectStandardError "$env:TEMP\lt.err"
-          
-          Start-Sleep 15
-          
-          # قراءة الرابط
-          $log = Get-Content "$env:TEMP\lt.log" -ErrorAction SilentlyContinue | Select-String -Pattern "https://.*\.loca\.lt" | Select-Object -First 1
-          
-          if ($log) {
-              $url = $log.Matches[0].Value
+
+          # تشغيل النفق
+          Write-Host "🚀 تشغيل النفق..."
+          $ltProcess = Start-Process -FilePath "lt" -ArgumentList "--port","5650","--print-requests" -WindowStyle Hidden -RedirectStandardOutput "$env:TEMP\lt.log" -RedirectStandardError "$env:TEMP\lt.err" -PassThru
+
+          Write-Host "⏳ انتظار إنشاء النفق (30 ثانية)..."
+          Start-Sleep 30
+
+          # قراءة السجلات
+          $logContent = Get-Content "$env:TEMP\lt.log" -ErrorAction SilentlyContinue | Out-String
+          $errContent = Get-Content "$env:TEMP\lt.err" -ErrorAction SilentlyContinue | Out-String
+
+          Write-Host "=== سجلات LocalTunnel ==="
+          Write-Host $logContent
+          if ($errContent) {
+              Write-Host "=== أخطاء ==="
+              Write-Host $errContent
+          }
+
+          # استخراج الرابط
+          if ($logContent -match "(https://[a-z0-9-]+\.loca\.lt)") {
+              $tunnelUrl = $matches[1]
               Write-Host ""
-              Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
-              Write-Host "🖥️  LiteManager Server جاهز!" -ForegroundColor Green
-              Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
+              Write-Host "═══════════════════════════════════════════" -ForegroundColor Green
+              Write-Host "🖥️  LiteManager Server - Connection Info" -ForegroundColor Cyan
+              Write-Host "═══════════════════════════════════════════" -ForegroundColor Green
               Write-Host ""
-              Write-Host "🌐 الرابط: $url" -ForegroundColor Yellow
-              Write-Host "🔌 المنفذ: 5650 (يُحوّل تلقائياً)" -ForegroundColor White
+              Write-Host "🌐 Tunnel URL: $tunnelUrl" -ForegroundColor Yellow
+              Write-Host "🔌 Port: 5650 (LiteManager default)" -ForegroundColor White
               Write-Host "🔑 Password: TestPass123!" -ForegroundColor White
               Write-Host ""
               Write-Host "📋 في LiteManager Viewer:" -ForegroundColor White
-              Write-Host "   Connection Mode: Direct Connection" -ForegroundColor White
-              Write-Host "   IP/Host: $url" -ForegroundColor White
-              Write-Host "   Port: 443 (HTTPS)" -ForegroundColor White
-              Write-Host "   Password: TestPass123!" -ForegroundColor White
-              Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
+              Write-Host "   Mode: Direct Connection" -ForegroundColor Gray
+              Write-Host "   Host: $tunnelUrl" -ForegroundColor Gray
+              Write-Host "   Port: 443" -ForegroundColor Gray
+              Write-Host "   Password: TestPass123!" -ForegroundColor Gray
+              Write-Host ""
+              Write-Host "⏱️  Session: 6 hours max" -ForegroundColor Red
+              Write-Host "═══════════════════════════════════════════" -ForegroundColor Green
           } else {
-              Write-Host "⚠️ جاري المحاولة مرة أخرى..."
+              Write-Host "⚠️ لم يتم العثور على رابط النفق"
+              Write-Host "جاري المحاولة بطريقة بديلة..."
+
+              # محاولة بديلة باستخدام serveo
+              Start-Process ssh -ArgumentList "-o","StrictHostKeyChecking=no","-R","5650:localhost:5650","serveo.net" -WindowStyle Hidden
               Start-Sleep 10
-              $log = Get-Content "$env:TEMP\lt.log" -ErrorAction SilentlyContinue
-              Write-Host "السجلات: $log"
+              Write-Host "🌐 تم تشغيل Serveo tunnel"
+              Write-Host "📡 للاتصال: استخدم SSH forwarding"
           }
 
       - name: Keep Alive
         shell: pwsh
         run: |
           $end = (Get-Date).AddHours(6)
+          Write-Host "⏳ الجلسة نشطة حتى: $($end.ToString('HH:mm:ss'))"
+
           while ((Get-Date) -lt $end) {
               $rem = $end - (Get-Date)
-              Write-Host "⏳ متبقي: $($rem.ToString('hh\:mm\:ss'))"
-              
-              if (-not (Get-Process "ROMServer" -ErrorAction SilentlyContinue)) {
+              Write-Host "⏱️  متبقي: $($rem.ToString('hh\:mm\:ss'))"
+
+              $lm = Get-Process "ROMServer" -ErrorAction SilentlyContinue
+              if (-not $lm) {
+                  Write-Host "⚠️ إعادة تشغيل LiteManager..."
                   & "C:\LiteManager\ROMServer.exe" /start
               }
+
               Start-Sleep 300
           }
+
+          Write-Host "✅ انتهت الجلسة"
+
+      - name: Cleanup
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "🧹 تنظيف..."
+          Get-Process "ROMServer" -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process "lt" -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process "node" -ErrorAction SilentlyContinue | Stop-Process -Force
+          Write-Host "✅ تم التنظيف"
