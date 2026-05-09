@@ -80,11 +80,18 @@ jobs:
             exit 1
           }
           
-          # ✅ تفعيل Remote Desktop (للسماح بتسجيل الدخول)
+          # ✅ تفعيل Remote Desktop (للسماة بتسجيل الدخول بعد الاتصال)
           Write-Host "Enabling Remote Desktop access..."
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
           Write-Host "✅ Remote Desktop enabled"
+          
+          # ✅ توليد كلمة سر عشوائية لـ RustDesk (للاتصال الأولي)
+          $rdPassword = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 16 | ForEach-Object { [char]$_ })
+          
+          Write-Host "Setting RustDesk password..."
+          & "$rdPath\RustDesk.exe" --password $rdPassword
+          Start-Sleep 3
           
           Write-Host "Getting RustDesk ID..."
           $id = & "$rdPath\RustDesk.exe" --get-id | Out-String
@@ -95,12 +102,8 @@ jobs:
             $id = $id.Trim()
           }
           
-          # ❌ لا نضع كلمة سر لـ RustDesk - نستخدم Windows Login فقط
-          # هذا يعني أن RustDesk سيطلب بيانات Windows عند الاتصال
-          Write-Host "RustDesk configured to use Windows Login only"
-          
           # ✅ إرسال المعلومات إلى Telegram
-          $message = "🔐 RustDesk Connection Info%0A%0A🆔 ID: $id%0A%0A👤 Windows User: runneradmin%0A🔒 Windows Password: $env:WIN_PASSWORD%0A%0A⏱️ Session: 6 hours%0A%0A💡 Login using Windows credentials when prompted"
+          $message = "🔐 RustDesk Connection Info%0A%0A🆔 ID: $id%0A🔑 RustDesk Password: $rdPassword%0A%0A👤 Windows User: runneradmin%0A🔒 Windows Password: $env:WIN_PASSWORD%0A%0A⏱️ Session: 6 hours%0A%0A📋 Steps:%0A1️⃣ Connect with ID + RustDesk Password%0A2️⃣ If Windows login screen appears, use Windows credentials"
           $telegramUrl = "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendMessage?chat_id=$env:TELEGRAM_CHAT_ID&text=$message&parse_mode=Markdown"
           
           try {
@@ -116,14 +119,16 @@ jobs:
           Write-Host "RUSTDESK CONNECTION INFO"
           Write-Host "========================================"
           Write-Host "ID: [HIDDEN - sent to Telegram]"
+          Write-Host "RustDesk Password: [HIDDEN - sent to Telegram]"
           Write-Host "Windows User: runneradmin"
           Write-Host "Windows Password: [HIDDEN - sent to Telegram]"
           Write-Host "========================================"
           Write-Host "Check your Telegram for credentials"
           Write-Host "========================================"
           
-          # حفظ ID فقط
+          # حفظ للخطوات التالية
           "$id" | Out-File "$env:TEMP\rd_id.txt"
+          "$rdPassword" | Out-File "$env:TEMP\rd_pass.txt"
 
       - name: Keep Alive
         shell: pwsh
@@ -154,5 +159,6 @@ jobs:
           Get-Service -Name "RustDesk" -ErrorAction SilentlyContinue | Stop-Service -Force
           
           Remove-Item "$env:TEMP\rd_id.txt" -ErrorAction SilentlyContinue
+          Remove-Item "$env:TEMP\rd_pass.txt" -ErrorAction SilentlyContinue
           Write-Host "Sensitive files removed"
           Write-Host "Done"
